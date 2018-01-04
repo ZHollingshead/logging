@@ -1,25 +1,26 @@
 {
   "compilerOptions": {
-    "target": "es2015",
-    "module": "es2015",
-    "experimentalDecorators": true,
-    "emitDecoratorMetadata": false,
+    "module": "amd",
     "moduleResolution": "node",
-    "stripInternal": true,
-    "preserveConstEnums": true,
-    "listFiles": true,
+    "target": "es5",
+    "lib": [
+      "es2017",
+      "dom"
+    ],
+    "outDir": "dist/test",
+    "noImplicitAny": false,
+    "noImplicitReturns": true,
+    "strictNullChecks": true,
     "declaration": true,
-    "removeComments": true,
-    "lib": ["es2015", "dom"]
+    "forceConsistentCasingInFileNames": true,
+    "experimentalDecorators": true,
+    "noEmitHelpers": false
   },
   "exclude": [
-    "node_modules",
+    ".vscode",
     "dist",
-    "build",
     "doc",
-    "test",
-    "config.js",
-    "gulpfile.js",
-    "karma.conf.js"
+    "node_modules",
+    "packages"
   ]
 }

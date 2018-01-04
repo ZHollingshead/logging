@@ -1,46 +1,31 @@
-/**
-* Specifies the available logging levels.
-*/
-interface LogLevel {
-  /**
-  * No logging.
-  */
-  none: number,
-  /**
-  * Log only error messages.
-  */
-  error: number,
-  /**
-  * Log warnings messages or above.
-  */
-  warn: number,
-  /**
-  * Log informational messages or above.
-  */
-  info: number,
-  /**
-  * Log all messages.
-  */
-  debug: number
-}
+import { LogLevel } from "./log-level";
+import { Appender } from "./appender";
+
+export { LogLevel } from './log-level';
+export { Appender } from './appender';
 
 /**
 * Specifies the available logging levels.
 */
 export const logLevel: LogLevel = {
   none: 0,
-  error: 1,
-  warn: 2,
-  info: 3,
-  debug: 4
+  error: 10,
+  warn: 20,
+  info: 30,
+  debug: 40
 };
 
 let loggers = {};
-let appenders = [];
+let appenders: Appender[] = [];
 let globalDefaultLevel = logLevel.none;
 
+const standardLevels = ['none', 'error', 'warn', 'info', 'debug'];
+function isStandardLevel(level: string) {
+  return standardLevels.filter(l => l === level).length > 0;
+}
+
 function appendArgs() {
-  return [this, ...arguments];
+  return [this, ...Array.from(arguments)];
 }
 
 function logFactory(level) {
@@ -61,12 +46,49 @@ function logFactory(level) {
   };
 }
 
+function logFactoryCustom(level) {
+  //This function is the same as logFactory() except that it checks that the method
+  //is defined on the appender.
+  const threshold = logLevel[level];
+  return function() {
+    // In this function, this === logger
+    if (this.level < threshold) {
+      return;
+    }
+    // We don't want to disable optimizations (such as inlining) in this function
+    // so we do the arguments manipulation in another function.
+    // Note that Function#apply is very special for V8.
+    const args = appendArgs.apply(this, arguments);
+    let i = appenders.length;
+    while (i--) {
+      const appender = appenders[i];
+      if (appender[level] !== undefined) {
+        appender[level](...args);
+      }
+    }
+  };
+}
+
 function connectLoggers() {
   let proto = Logger.prototype;
-  proto.debug = logFactory('debug');
-  proto.info = logFactory('info');
-  proto.warn = logFactory('warn');
-  proto.error = logFactory('error');
+  for (let level in logLevel) {
+    if (isStandardLevel(level)) {
+      if (level !== 'none') {
+        proto[level] = logFactory(level);
+      }
+    } else {
+      proto[level] = logFactoryCustom(level);
+    }
+  }
+}
+
+function disconnectLoggers() {
+  let proto = Logger.prototype;
+  for (let level in logLevel) {
+    if (level !== 'none') {
+      proto[level] = function() { };
+    }
+  }
 }
 
 /**
@@ -77,43 +99,6 @@ function connectLoggers() {
 */
 export function getLogger(id: string): Logger {
   return loggers[id] || new Logger(id);
-}
-
-/**
-* Implemented by classes which wish to append log data to a target data store.
-*/
-interface Appender {
-  /**
-  * Appends a debug log.
-  *
-  * @param logger The source logger.
-  * @param rest The data to log.
-  */
-  debug(logger: Logger, ...rest: any[]): void;
-
-  /**
-  * Appends an info log.
-  *
-  * @param logger The source logger.
-  * @param rest The data to log.
-  */
-  info(logger: Logger, ...rest: any[]): void;
-
-  /**
-  * Appends a warning log.
-  *
-  * @param logger The source logger.
-  * @param rest The data to log.
-  */
-  warn(logger: Logger, ...rest: any[]): void;
-
-  /**
-  * Appends an error log.
-  *
-  * @param logger The source logger.
-  * @param rest The data to log.
-  */
-  error(logger: Logger, ...rest: any[]): void;
 }
 
 /**
@@ -128,11 +113,70 @@ export function addAppender(appender: Appender): void {
 }
 
 /**
-* Removes an appender
+* Removes an appender.
 * @param appender An appender that has been added previously.
 */
 export function removeAppender(appender: Appender): void {
   appenders = appenders.filter(a => a !== appender);
+}
+
+/**
+ * Gets an array of all appenders.
+ */
+export function getAppenders() {
+  return [...appenders];
+}
+
+/**
+ * Removes all appenders.
+ */
+export function clearAppenders(): void {
+  appenders = [];
+  disconnectLoggers();
+}
+
+/**
+ * Adds a custom log level that will be added as an additional method to Logger.
+ * Logger will call the corresponding method on any appenders that support it.
+ *
+ * @param name The name for the new log level.
+ * @param value The numeric severity value for the level (higher is more severe).
+ */
+export function addCustomLevel(name: string, value: number): void {
+  if (logLevel[name] !== undefined) {
+    throw Error(`Log level "${name}" already exists.`);
+  }
+
+  if (isNaN(value)) {
+    throw Error('Value must be a number.');
+  }
+
+  logLevel[name] = value;
+
+  if (appenders.length > 0) {
+    //Reinitialize the Logger prototype with the new method.
+    connectLoggers();
+  } else {
+    //Add the custom level as a noop by default.
+    Logger.prototype[name] = function() { };
+  }
+}
+
+/**
+ * Removes a custom log level.
+ * @param name The name of a custom log level that has been added previously.
+ */
+export function removeCustomLevel(name: string): void {
+  if (logLevel[name] === undefined) {
+    return;
+  }
+
+  if (isStandardLevel(name)) {
+    throw Error(`Built-in log level "${name}" cannot be removed.`);
+  }
+
+  delete logLevel[name];
+  delete Logger.prototype[name];
 }
 
 /**
